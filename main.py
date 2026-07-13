@@ -11,7 +11,7 @@ from collections import deque
 from pathlib import Path
 from core import config
 from brain.agent import JeanClaude
-from brain import memory, history, router, tools as brain_tools
+from brain import memory, history, router, consola, tools as brain_tools
 from voice import stt, tts, hotkey
 from ui import app as ui_app
 
@@ -285,14 +285,16 @@ def main():
     controls = Controls()
     state = StateBus(ui_queue)
 
-    # Liga a tool `abrir_consola` ao encerramento limpo e ao reinício: quando a
-    # consola do Fábio acabar, ela pede "sair" pela mesma via do tray e marca
-    # este evento — o main() relança o processo só depois do mainloop terminar.
+    # Reinício: agora é o Fábio que carrega no botão da aba Consola quando quer
+    # aplicar as mudanças. O evento é marcado no clique; o relance acontece no fim
+    # do mainloop, como já era.
     reiniciar_event = threading.Event()
-    brain_tools.configurar_reinicio(ui_queue, reiniciar_event.set)
 
-    # Resumo da última consola (ou o log, em fallback), se ficou pendente de um
-    # reinício anterior — consumido aqui, não repete no próximo arranque.
+    runner = consola.ConsoleRunner(ui_queue, on_terminou=lambda: None)
+    brain_tools.configurar_consola(runner)
+
+    # Resumo pendente de um reinício anterior (se a app foi relançada com resumo por
+    # mostrar) — consumido aqui, não repete no próximo arranque.
     resumo_consola = brain_tools.ler_resumo_consola_pendente()
     if resumo_consola:
         ui_queue.put(("info", f"[consola] {resumo_consola}"))
@@ -374,6 +376,7 @@ def main():
         begin_recording, end_recording, ui_queue, on_close, tts_enabled,
         on_text=submit_text, on_cancel=cancelar, hotkey_label=tecla_label,
         historico=history.load(config.HISTORY_REPLAY),
+        on_reiniciar=reiniciar_event.set,
     )
 
     # Só depois do mainloop acabar (encerramento limpo já feito): relança a app.
