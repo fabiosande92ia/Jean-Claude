@@ -1,6 +1,12 @@
 import os
 
+import pytest
+
+from core import config
 from voice import tts
+
+_voice = config.PROJECT_ROOT / "models" / "pt_PT-tugao-medium.onnx"
+pytestmark = pytest.mark.skipif(not _voice.exists(), reason="Piper voice model not present")
 
 
 def test_synth_creates_wav(tmp_path):

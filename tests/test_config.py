@@ -1,5 +1,4 @@
 # tests/test_config.py
-from pathlib import Path
 from core import config
 
 def test_paths_exist_and_are_absolute():
@@ -14,4 +13,4 @@ def test_allowed_tools_are_basic_only():
 
 def test_defaults():
     assert config.WHISPER_MODEL == "large-v3"
-    assert config.HOTKEY == "ctrl+space"
+    assert config.HOTKEY == "space"

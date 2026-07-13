@@ -57,6 +57,8 @@ def get_model() -> WhisperModel:
         try:
             _model = _load_model("cuda", "float16")
         except Exception:
+            import sys
+            print("[STT: CUDA indisponível, a usar CPU (mais lento)]", file=sys.stderr)
             _model = _load_model("cpu", "int8")
     return _model
 

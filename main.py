@@ -11,7 +11,13 @@ REC_PATH = str(config.PROJECT_ROOT / "_jc_rec.wav")
 
 async def run():
     jc = JeanClaude()
-    speaker = tts.get_tts()
+
+    try:
+        speaker = tts.get_tts()
+    except Exception as e:
+        print(f"[Falha a carregar a voz Piper: {e}]")
+        print("Verifica que models/pt_PT-tugao-medium.onnx existe (ver README, secção de download da voz).")
+        raise
 
     # injeta o índice de memória no arranque
     index = memory.read_index()

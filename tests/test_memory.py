@@ -1,5 +1,4 @@
 # tests/test_memory.py
-import tempfile
 from pathlib import Path
 import brain.memory as memory
 from core import config

@@ -10,4 +10,4 @@ CLAUDE_MD = CONFIG_DIR / "CLAUDE.md"
 ALLOWED_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
 
 WHISPER_MODEL = "large-v3"
-HOTKEY = "ctrl+space"
+HOTKEY = "space"
