@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.wav
+!tests/assets/*.wav
+models/
+*.onnx
+*.onnx.json
+.jc-config/credentials.json
+.pytest_cache/
