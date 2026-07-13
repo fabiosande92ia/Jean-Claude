@@ -61,7 +61,8 @@ class App:
                     self._append("[erro] ", payload, "error")
         except queue.Empty:
             pass
-        self.root.after(50, self._poll)
+        finally:
+            self.root.after(50, self._poll)
 
 
 def launch(on_press, on_release, ui_queue, on_close):
