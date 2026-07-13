@@ -1,4 +1,6 @@
 import inspect
+import queue
+import time
 import tkinter as tk
 
 import pytest
@@ -133,6 +135,31 @@ def test_parar_em_idle_nao_chama_o_backend():
     b.on_cancel = lambda: chamadas.append(1)
     b._parar()
     assert chamadas == [1]
+
+
+# --- modelo do turno (badge do header) --------------------------------------
+def _app_para_set_estado(estado_inicial):
+    app = object.__new__(ui_app.App)
+    app._estado = estado_inicial
+    app._desde = time.monotonic()
+    app._refresh_botoes = lambda: None
+    app._draw_level = lambda rms: None
+    return app
+
+
+def test_set_estado_reseta_modelo_ao_voltar_idle():
+    """O badge é do turno: sobreviver-lhe (ex.: 'idle · opus' para sempre) mentia."""
+    app = _app_para_set_estado("processing")
+    app._modelo = "opus"
+    app._set_estado("idle")
+    assert app._modelo is None
+
+
+def test_set_estado_mantem_modelo_entre_estados_ocupados():
+    app = _app_para_set_estado("recording")
+    app._modelo = "haiku"
+    app._set_estado("processing")
+    assert app._modelo == "haiku"
 
 
 # --- código na chat ---------------------------------------------------------
@@ -327,3 +354,96 @@ def test_mascote_none_nao_rebenta_o_poll():
     app.ui_queue.put(("state", "idle"))
     app.ui_queue.put(("assistant", "olá"))
     app._poll()   # não levanta
+
+
+# --- consola (corrida em segundo plano) --------------------------------------
+class NotebookFalso:
+    """Notebook de mentira: guarda o texto do separador em vez de desenhar."""
+
+    def __init__(self):
+        self._atual = 0
+        self.textos = {}
+
+    def index(self, arg):
+        return self._atual if arg == "current" else arg
+
+    def tab(self, idx, text):
+        self.textos[idx] = text
+
+
+class BotaoConsolaFalso:
+    def __init__(self):
+        self.visivel = False
+
+    def pack(self, **kw):
+        self.visivel = True
+
+    def pack_forget(self):
+        self.visivel = False
+
+
+@pytest.fixture
+def app_consola(tk_root, monkeypatch):
+    app = object.__new__(ui_app.App)
+    app.ui_queue = queue.Queue()
+    app._a_fechar = True
+    app.mascot = None
+    app._set_estado = lambda p: None
+    app._refresh_estado = lambda: None
+    app._apagar_delta = lambda: None
+    app.mensagens = []
+    app._append_msg = lambda k, p: app.mensagens.append((k, p))
+    app.chat = tk.Text(tk_root)
+    app._delta_ativo = False
+    app.consola_txt = tk.Text(tk_root)
+    app.nb = NotebookFalso()
+    app._idx_consola = 0
+    app._consola_run = False
+    app._consola_modelo = None
+    app._consola_visto = True
+    app._consola_desde = time.monotonic()
+    app.btn_reiniciar = BotaoConsolaFalso()
+    app.dings = []
+    monkeypatch.setattr(ui_app, "_ding", lambda: app.dings.append(1))
+    yield app
+    app.chat.destroy()
+    app.consola_txt.destroy()
+
+
+def test_consola_fim_fecha_delta_em_curso_antes_de_anexar_ao_chat(app_consola):
+    """Sem isto, um 'Consola acabou' a meio de uma resposta a fluir reabria o
+    bloco delta em vez de o fechar primeiro."""
+    app = app_consola
+    app._delta_ativo = True
+    app.ui_queue.put(("consola_fim", "mudei X, testes ok"))
+    app._poll()
+    assert app._delta_ativo is False
+    assert ("assistant", "Consola acabou. mudei X, testes ok") in app.mensagens
+    assert app.dings == [1]
+
+
+def test_consola_fim_mostra_botao_reiniciar(app_consola):
+    app = app_consola
+    app.ui_queue.put(("consola_fim", "resumo"))
+    app._poll()
+    assert app.btn_reiniciar.visivel is True
+
+
+def test_2a_corrida_esconde_botao_reiniciar_da_corrida_anterior(app_consola):
+    """Clicar 'reiniciar' com uma 2ª consola já a correr orfanava o subprocesso
+    (a app fecha, o Popen escondido continua vivo sem ninguém à espera dele)."""
+    app = app_consola
+    app.btn_reiniciar.visivel = True   # ficou visível da corrida anterior
+    app.ui_queue.put(("consola_estado", {"run": True, "modelo": "opus"}))
+    app._poll()
+    assert app.btn_reiniciar.visivel is False
+    assert app._consola_run is True
+
+
+def test_consola_run_arranca_timer_proprio(app_consola):
+    """O spinner da consola não pode saltar quando o estado principal muda."""
+    app = app_consola
+    antes = time.monotonic()
+    app.ui_queue.put(("consola_estado", {"run": True, "modelo": "sonnet"}))
+    app._poll()
+    assert app._consola_desde >= antes

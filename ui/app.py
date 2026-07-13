@@ -280,6 +280,7 @@ class App:
         self._consola_run = False
         self._consola_modelo = None
         self._consola_visto = True     # badge só acende quando há algo por ver
+        self._consola_desde = time.monotonic()   # timer próprio: não segue o header
 
         escala = _dpi_setup(root)
         root.title("Jean Claude")
@@ -709,6 +710,8 @@ class App:
             self._estado = estado
             self._desde = time.monotonic()
             self._refresh_botoes()
+            if estado == "idle":
+                self._modelo = None   # badge é do turno, não deve sobreviver-lhe
         if estado != "recording":
             self._draw_level(0.0)
 
@@ -781,7 +784,7 @@ class App:
 
     def _refresh_badge_consola(self):
         if self._consola_run:
-            passado = time.monotonic() - self._desde
+            passado = time.monotonic() - self._consola_desde
             frame = SPINNER[int(passado * 10) % len(SPINNER)]
             modelo = f" · {self._consola_modelo}" if self._consola_modelo else ""
             texto = f"{frame} Consola{modelo}"
@@ -825,7 +828,11 @@ class App:
                     if "modelo" in payload:
                         self._consola_modelo = payload["modelo"]
                     if self._consola_run:
+                        self._consola_desde = time.monotonic()
                         self._consola_visto = self.nb.index("current") == self._idx_consola
+                        # 2ª corrida a começar: esconde o botão da corrida anterior —
+                        # clicar reinicia a app e órfa o subprocesso que está a correr agora.
+                        self.btn_reiniciar.pack_forget()
                     self._refresh_badge_consola()
                 elif kind == "consola_fim":
                     self._append_consola(f"\n{payload}\n")
@@ -834,6 +841,7 @@ class App:
                     self._refresh_badge_consola()
                     self.btn_reiniciar.pack(fill="x", padx=8, pady=(0, 8))
                     _ding()
+                    self._fechar_delta()   # não cortar uma resposta a meio de fluir
                     self._append_msg("assistant", f"Consola acabou. {payload}")
                 else:
                     if kind == "assistant":
