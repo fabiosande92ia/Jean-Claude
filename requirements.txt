@@ -1,5 +1,13 @@
 claude-agent-sdk>=0.1.0
 faster-whisper>=1.0.0
+# DLLs de runtime CUDA/cuDNN usadas pelo faster-whisper (ctranslate2) na GPU.
+# Sem elas (ou sem as suas pastas "bin" no PATH), WhisperModel(device="cuda")
+# constrói sem erro mas falha mais tarde ao transcrever. voice/stt.py trata
+# disto em runtime (os.add_dll_directory + pré-carga via ctypes).
+nvidia-cublas-cu12>=12.0
+nvidia-cuda-nvrtc-cu12>=12.0
+nvidia-cudnn-cu12>=9.0
+nvidia-nvjitlink-cu12>=12.0
 piper-tts>=1.2.0
 sounddevice>=0.4.6
 soundfile>=0.12.1
