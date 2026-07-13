@@ -5,6 +5,8 @@ import soundfile as sf
 from pynput import keyboard
 from core import config
 
+NUMPAD_MINUS = keyboard.KeyCode.from_vk(0x6D)
+
 
 def save_wav(frames, samplerate: int, out_path: str) -> str:
     """
@@ -23,45 +25,69 @@ def save_wav(frames, samplerate: int, out_path: str) -> str:
     return out_path
 
 
-def record_between_keys(out_path: str, samplerate: int = 16000) -> str:
-    """
-    Records audio from the microphone while the space key is held down.
-    Stops recording when the key is released.
+class Recorder:
+    """Gravação de áudio não-bloqueante, controlada por start()/stop() explícitos."""
 
-    Args:
-        out_path: output WAV file path
-        samplerate: sample rate in Hz (default 16000)
+    def __init__(self, samplerate: int = 16000):
+        self.samplerate = samplerate
+        self.active = False
+        self._q: "queue.Queue" = queue.Queue()
+        self._stream = None
 
-    Returns:
-        The output file path
-    """
-    q: "queue.Queue" = queue.Queue()
-    recording = {"active": False, "done": False}
+    def _audio_cb(self, indata, frames, time, status):
+        if self.active:
+            self._q.put(indata.copy())
 
-    def audio_cb(indata, frames, time, status):
-        """Audio stream callback."""
-        if recording["active"]:
-            q.put(indata.copy())
+    def start(self) -> None:
+        """Começa a gravar. No-op se já estiver a gravar."""
+        if self.active:
+            return
+        self.active = True
+        self._q = queue.Queue()
+        self._stream = sd.InputStream(
+            samplerate=self.samplerate, channels=1, dtype="float32", callback=self._audio_cb
+        )
+        self._stream.start()
 
-    def on_press(key):
-        """Key press event handler."""
-        if key == keyboard.Key.space:
-            recording["active"] = True
+    def stop(self, out_path: str) -> str | None:
+        """Para a gravação e escreve o wav. Devolve None se não estava a gravar."""
+        if not self.active:
+            return None
+        self.active = False
+        self._stream.stop()
+        self._stream.close()
+        self._stream = None
 
-    def on_release(key):
-        """Key release event handler."""
-        if key == keyboard.Key.space and recording["active"]:
-            recording["active"] = False
-            recording["done"] = True
-            return False  # stop the listener
+        frames = []
+        while not self._q.empty():
+            frames.append(self._q.get())
+        if not frames:
+            frames = [np.zeros((1, 1), dtype="float32")]
+        return save_wav(frames, self.samplerate, out_path)
 
-    frames = []
-    with sd.InputStream(samplerate=samplerate, channels=1, dtype="float32", callback=audio_cb):
-        with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-            listener.join()
-            while not q.empty():
-                frames.append(q.get())
 
-    if not frames:
-        frames = [np.zeros((1, 1), dtype="float32")]
-    return save_wav(frames, samplerate, out_path)
+class GlobalHotkey:
+    """Escuta uma tecla globalmente (sem precisar de foco na janela) via pynput."""
+
+    def __init__(self, key, on_press_cb, on_release_cb):
+        self.key = key
+        self.on_press_cb = on_press_cb
+        self.on_release_cb = on_release_cb
+        self._listener = None
+
+    def _on_press(self, key):
+        if key == self.key:
+            self.on_press_cb()
+
+    def _on_release(self, key):
+        if key == self.key:
+            self.on_release_cb()
+
+    def start(self) -> None:
+        self._listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+        self._listener.start()
+
+    def stop(self) -> None:
+        if self._listener:
+            self._listener.stop()
+            self._listener = None
