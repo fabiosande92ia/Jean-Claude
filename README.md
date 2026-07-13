@@ -56,7 +56,9 @@ Super assistente pessoal de desktop. Voz push-to-talk, visão de ecrã, memória
 
 `python main.py`
 
-Segura **ESPAÇO**, fala, larga. Jean Claude responde por voz e texto.
+Abre uma janela: segura **Numpad -** (ou clica e segura o botão "Numpad -" na
+janela), fala, larga. Jean Claude responde por voz e mostra a conversa no
+chat da janela.
 
 ## Estrutura
 
