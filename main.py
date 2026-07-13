@@ -64,6 +64,8 @@ def main():
         if path:
             ui_queue.put(("state", "processing"))
             rec_queue.put(path)
+        else:
+            ui_queue.put(("state", "idle"))
 
     global_hotkey = hotkey.GlobalHotkey(hotkey.NUMPAD_MINUS, begin_recording, end_recording)
     global_hotkey.start()
