@@ -31,6 +31,12 @@ VU_CLIP = "#ff6b60"
 VU_TRACK = BORDA        # trilho sempre desenhado: canvas vazio parecia partido
 VU_ALTURA = 8
 
+BOTAO_PARAR = "#8e2f2a"
+BOTAO_PARAR_ATIVO = "#a33a34"
+BOTAO_ENVIAR = "#3d5afe"
+BOTAO_ENVIAR_ATIVO = "#5165ff"
+BOTAO_OFF = "#34373c"   # botão desativado: apagado, não só cinzento no texto
+
 FONTE = ("Segoe UI", 10)
 FONTE_CHAT = ("Segoe UI", 10)
 FONTE_ESTADO = ("Segoe UI", 12, "bold")
@@ -58,6 +64,11 @@ UNKNOWN_COLOR = "#444444"
 # distingue trabalho de app pendurada.
 ESTADOS_OCUPADOS = ("loading", "recording", "processing", "speaking")
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+# Enviar aqui era enfileirar um pedido por cima de outro (ou perdê-lo em silêncio):
+# o worker está a carregar modelos ou já a tratar de um job. Durante "recording" e
+# "speaking" continua a valer — o job entra na fila e corre a seguir.
+ESTADOS_SEM_ENVIO = ("loading", "processing")
 
 
 # --- contraste -------------------------------------------------------------
@@ -145,6 +156,9 @@ class App:
         self._cache_estado = None
         self._topo = False
         self._a_fechar = False
+        self._hotkey_label = hotkey_label
+        self._placeholder = f"escreve ou usa {hotkey_label}"
+        self._placeholder_ativo = False
 
         escala = _dpi_setup(root)
         root.title("Jean Claude")
@@ -187,8 +201,9 @@ class App:
 
         self.stop_button = tk.Button(
             linha, text="Parar", font=FONTE, command=self._parar,
-            bg="#8e2f2a", fg="white", activebackground="#a33a34", activeforeground="white",
-            relief="flat", bd=0, pady=4,
+            bg=BOTAO_PARAR, fg="white",
+            activebackground=BOTAO_PARAR_ATIVO, activeforeground="white",
+            disabledforeground=FG_DIM, relief="flat", bd=0, pady=4,
         )
         self.stop_button.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
@@ -239,13 +254,19 @@ class App:
         )
         self.entry.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 4))
         self.entry.bind("<Return>", self._enviar)
+        self.entry.bind("<Key>", self._on_key_entry)
+        self.entry.bind("<FocusOut>", lambda e: self._placeholder_on())
 
         self.send_button = tk.Button(
             entrada, text="Enviar", font=FONTE, command=self._enviar,
-            bg="#3d5afe", fg="white", activebackground="#5165ff", activeforeground="white",
-            relief="flat", bd=0, padx=12,
+            bg=BOTAO_ENVIAR, fg="white",
+            activebackground=BOTAO_ENVIAR_ATIVO, activeforeground="white",
+            disabledforeground=FG_DIM, relief="flat", bd=0, padx=12,
         )
         self.send_button.pack(side="left")
+
+        self._placeholder_on()
+        self._refresh_botoes()
 
         for m in historico:
             self._append_msg(m.get("role", ""), m.get("text", ""), m.get("ts"))
@@ -257,7 +278,14 @@ class App:
         self._tray_ok = self.tray.start()
         if self._tray_ok:
             root.bind("<Unmap>", self._on_unmap)
+        else:
+            # O _tray_ok era guardado e nunca dito a ninguém: minimizar deixava de
+            # esconder para o relógio e parecia bug, não falha do pystray.
+            self._append("", "sem bandeja do sistema — minimizar não esconde para o relógio", "info")
 
+        # Esc = Parar. A mão já está no teclado; ir buscar o rato a meio de uma
+        # resposta errada é tempo a mais.
+        root.bind("<Escape>", self._parar)
         root.protocol("WM_DELETE_WINDOW", self._handle_close)
         self.entry.focus_set()
         self._poll()
@@ -283,19 +311,54 @@ class App:
         )
         estilo.map("JC.Vertical.TScrollbar", background=[("active", FG_DIM)])
 
+    # --- input --------------------------------------------------------------
+    def _placeholder_on(self):
+        """Dica cinzenta na caixa vazia. Sai à primeira tecla, não ao focar: com o
+        foco a começar aqui, sair ao focar era nunca chegar a ver a dica."""
+        if self._placeholder_ativo or self.entry.get():
+            return
+        self._placeholder_ativo = True
+        self.entry.insert(0, self._placeholder)
+        self.entry.config(fg=FG_DIM)
+
+    def _placeholder_off(self):
+        if not self._placeholder_ativo:
+            return
+        self._placeholder_ativo = False
+        self.entry.delete(0, "end")
+        self.entry.config(fg=FG)
+
+    def _on_key_entry(self, event):
+        # Só teclas que escrevem mesmo. Setas, Tab e Esc têm char vazio (ou são o
+        # atalho de Parar) e não podem apagar a dica sem nada a substituí-la.
+        if self._placeholder_ativo and event.char and event.keysym != "Escape":
+            self._placeholder_off()
+
     # --- ações ------------------------------------------------------------
+    def _pode_enviar(self) -> bool:
+        return self._estado not in ESTADOS_SEM_ENVIO
+
     def _enviar(self, event=None):
+        # O Enter salta o botão: o guard tem de estar aqui, não só no state="disabled".
+        if not self._pode_enviar() or self._placeholder_ativo:
+            return "break"
         texto = self.entry.get().strip()
         if not texto:
             return "break"
         self.entry.delete(0, "end")
+        self._placeholder_on()
         if self.on_text:
             self.on_text(texto)   # o eco na chat vem do worker, via ui_queue: sem duplicados
         return "break"
 
-    def _parar(self):
+    def _parar(self, event=None):
+        # Em idle não há nada para parar: sem isto, o Esc distraído enchia a chat
+        # de "parado." sobre uma app que não estava a fazer nada.
+        if self._estado not in ESTADOS_OCUPADOS:
+            return "break"
         if self.on_cancel:
             self.on_cancel()
+        return "break"
 
     def _toggle_tts(self):
         if self.tts_enabled.is_set():
@@ -384,8 +447,35 @@ class App:
         if estado != self._estado:
             self._estado = estado
             self._desde = time.monotonic()
+            self._refresh_botoes()
         if estado != "recording":
             self._draw_level(0.0)
+
+    def _refresh_botoes(self):
+        """Os botões dizem o que a app aceita agora. Antes mentiam os três: o Falar
+        não mudava a gravar, o Parar estava ativo sem nada para parar, e o Enviar
+        aceitava um pedido por cima de outro."""
+        gravando = self._estado == "recording"
+        cor_rec = STATE_COLORS["recording"]
+        self.button.config(
+            text="A GRAVAR — larga para enviar" if gravando else f"Falar  ({self._hotkey_label})",
+            bg=cor_rec if gravando else BG_INPUT,
+            fg=cor_texto(cor_rec) if gravando else FG,
+            activebackground=cor_rec if gravando else BORDA,
+            activeforeground=cor_texto(cor_rec) if gravando else FG,
+        )
+
+        ocupado = self._estado in ESTADOS_OCUPADOS
+        self.stop_button.config(
+            state="normal" if ocupado else "disabled",
+            bg=BOTAO_PARAR if ocupado else BOTAO_OFF,
+        )
+
+        pode = self._pode_enviar()
+        self.send_button.config(
+            state="normal" if pode else "disabled",
+            bg=BOTAO_ENVIAR if pode else BOTAO_OFF,
+        )
 
     def _refresh_estado(self):
         label = STATE_LABELS.get(self._estado, str(self._estado))
