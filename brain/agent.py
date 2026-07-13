@@ -2,6 +2,7 @@
 import os
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
 from core import config
+from brain.tools import screenshot_server, SCREENSHOT_TOOL_NAME
 
 
 class JeanClaude:
@@ -18,7 +19,8 @@ class JeanClaude:
     def build_options(self) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(
             system_prompt=self._system_prompt(),
-            allowed_tools=list(config.ALLOWED_TOOLS) + list(self.extra_tools),
+            allowed_tools=list(config.ALLOWED_TOOLS) + [SCREENSHOT_TOOL_NAME] + list(self.extra_tools),
+            mcp_servers={"jc": screenshot_server},
             setting_sources=[],            # NÃO herdar settings globais do utilizador
             cwd=str(config.PROJECT_ROOT),
             permission_mode="acceptEdits", # v1: autónomo no projeto

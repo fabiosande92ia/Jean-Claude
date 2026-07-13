@@ -14,6 +14,9 @@ def test_options_are_isolated_and_basic():
     # só tools básicas
     assert set(opts.allowed_tools) >= set(config.ALLOWED_TOOLS)
     assert "MCP" not in " ".join(opts.allowed_tools)
+    # tool de visão (screenshot) está registada e permitida
+    from brain.tools import SCREENSHOT_TOOL_NAME
+    assert SCREENSHOT_TOOL_NAME in opts.allowed_tools
 
 def test_ask_is_async():
     assert inspect.iscoroutinefunction(JeanClaude.ask)
