@@ -52,6 +52,18 @@ def test_include_partial_messages_ligado():
     assert JeanClaude().build_options().include_partial_messages is True
 
 
+def test_build_options_passa_o_modelo():
+    jc = JeanClaude()
+    opts = jc.build_options(model="claude-opus-4-8")
+    assert opts.model == "claude-opus-4-8"
+
+
+def test_build_options_sem_modelo_fica_none():
+    jc = JeanClaude()
+    opts = jc.build_options()
+    assert opts.model is None
+
+
 class _FakeSDKClient:
     """Cliente SDK de mentira: dá as mensagens à mão, sem subprocess nenhum."""
 

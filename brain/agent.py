@@ -16,7 +16,7 @@ class JeanClaude:
     def _system_prompt(self) -> str:
         return config.CLAUDE_MD.read_text(encoding="utf-8")
 
-    def build_options(self) -> ClaudeAgentOptions:
+    def build_options(self, model=None) -> ClaudeAgentOptions:
         # Estilo caveman: plugin real, o mesmo do Claude Code do Fábio. Nível
         # fixo em ultra via env (só neste subprocess). Plugin ausente = fala normal.
         plugins: list[SdkPluginConfig] = []
@@ -46,9 +46,10 @@ class JeanClaude:
             # tool Read já estoura isso. 20MB dá margem sem deixar de apanhar um
             # runaway genuíno.
             max_buffer_size=20 * 1024 * 1024,
+            model=model,                    # None => default do SDK (retrocompatível)
         )
 
-    async def ask(self, prompt: str, on_delta=None) -> str:
+    async def ask(self, prompt: str, on_delta=None, model=None) -> str:
         """Envia prompt ao cérebro, devolve o texto final da resposta.
 
         `on_delta`, se dado, é chamado com cada pedaço de texto à medida que
@@ -56,7 +57,7 @@ class JeanClaude:
         montado a partir do AssistantMessage final — não da soma dos deltas.
         """
         reply = []
-        async with ClaudeSDKClient(options=self.build_options()) as client:
+        async with ClaudeSDKClient(options=self.build_options(model=model)) as client:
             await client.query(prompt)
             async for msg in client.receive_response():
                 if isinstance(msg, AssistantMessage):
