@@ -11,7 +11,7 @@ from collections import deque
 from pathlib import Path
 from core import config
 from brain.agent import JeanClaude
-from brain import memory, history, tools as brain_tools
+from brain import memory, history, router, tools as brain_tools
 from voice import stt, tts, hotkey
 from ui import app as ui_app
 
@@ -100,7 +100,7 @@ class Controls:
     Event único com clear() no início do job tinha uma race: um Parar entre o
     get() do worker e o clear() era apagado e o job que devia morrer corria todo.
 
-    O `speaker` é escrito pelo worker quando o Piper acaba de carregar e lido pela
+    O `speaker` é escrito pelo worker quando o TTS acaba de carregar e lido pela
     UI: rebind de referência, atómico em CPython — não precisa de lock.
     """
 
@@ -139,14 +139,14 @@ def build_prompt(index: str, history_deque: "deque", texto: str) -> str:
     return f"[memória índice]\n{index}\n\n{historico}[Fábio disse]\n{texto}"
 
 
-async def ask_cancelavel(jc: JeanClaude, prompt: str, cancel: threading.Event, on_delta=None) -> str:
+async def ask_cancelavel(jc: JeanClaude, prompt: str, cancel: threading.Event, on_delta=None, model=None) -> str:
     """
     Corre jc.ask() mas vigia o `cancel`.
 
     asyncio.run(jc.ask(...)) era um bloco monolítico: dito o disparate ao mic, havia
     que esperar pelo agente todo. Aqui a pergunta é uma task e o cancel mata-a.
     """
-    task = asyncio.create_task(jc.ask(prompt, on_delta=on_delta))
+    task = asyncio.create_task(jc.ask(prompt, on_delta=on_delta, model=model))
     while not task.done():
         if cancel.is_set():
             task.cancel()
@@ -194,7 +194,7 @@ def worker_loop(rec_queue: "queue.Queue", ui_queue: "queue.Queue", state: StateB
     try:
         controls.speaker = tts.get_tts()
     except Exception as e:
-        ui_queue.put(("error", f"Falha a carregar a voz Piper: {e}"))
+        ui_queue.put(("error", f"Falha a carregar a voz TTS: {e}"))
         controls.speaker = None
 
     # O Whisper large-v3 é lazy: carregava só na 1ª transcrição (30-60s de silêncio
@@ -233,8 +233,12 @@ def worker_loop(rec_queue: "queue.Queue", ui_queue: "queue.Queue", state: StateB
                     if not _cancel.is_set():
                         ui_queue.put(("delta", pedaco))
 
+                comp = router.escolher_modelo(texto)
+                model_id = router.modelo_id(comp)
+                ui_queue.put(("modelo", router.nome_curto(model_id)))
                 resposta = asyncio.run(
-                    ask_cancelavel(jc, build_prompt(index, recentes, texto), cancel, on_delta=on_delta)
+                    ask_cancelavel(jc, build_prompt(index, recentes, texto), cancel,
+                                   on_delta=on_delta, model=model_id)
                 )
                 if resposta:
                     ui_queue.put(("assistant", resposta))

@@ -11,7 +11,7 @@ class FakeJC:
         self.delay = delay
         self.cancelada = False
 
-    async def ask(self, prompt: str, on_delta=None) -> str:
+    async def ask(self, prompt: str, on_delta=None, model=None) -> str:
         try:
             await asyncio.sleep(self.delay)
         except asyncio.CancelledError:

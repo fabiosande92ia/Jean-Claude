@@ -143,6 +143,11 @@ def nivel_vu(rms: float) -> float:
     return min(1.0, (rms ** 0.5) * 3.0)
 
 
+def compor_header(label: str, modelo: str | None) -> str:
+    """Texto do header: estado, e o modelo do turno se houver."""
+    return f"{label} · {modelo}" if modelo else label
+
+
 def _hora(ts: str | None) -> str:
     if ts:
         try:
@@ -260,6 +265,7 @@ class App:
         self._placeholder = f"escreve ou usa {hotkey_label}"
         self._placeholder_ativo = False
         self._delta_ativo = False
+        self._modelo = None
 
         escala = _dpi_setup(root)
         root.title("Jean Claude")
@@ -671,7 +677,7 @@ class App:
         )
 
     def _refresh_estado(self):
-        label = STATE_LABELS.get(self._estado, str(self._estado))
+        label = compor_header(STATE_LABELS.get(self._estado, str(self._estado)), self._modelo)
         if self._estado in ESTADOS_OCUPADOS:
             passado = time.monotonic() - self._desde
             frame = SPINNER[int(passado * 10) % len(SPINNER)]
@@ -718,6 +724,9 @@ class App:
                         return   # janela destruída: não reagendar o poll
                 elif kind == "delta":
                     self._delta(payload)
+                elif kind == "modelo":
+                    self._modelo = payload
+                    self._cache_estado = None   # força o header a redesenhar já
                 else:
                     if kind == "assistant":
                         self._apagar_delta()   # a final substitui o que fluiu

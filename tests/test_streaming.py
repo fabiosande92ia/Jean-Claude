@@ -26,7 +26,7 @@ def test_worker_loop_entrega_deltas_por_ordem_sem_duplicar(monkeypatch):
     texto_final = "ola mundo"
 
     class FakeJC:
-        async def ask(self, prompt, on_delta=None):
+        async def ask(self, prompt, on_delta=None, model=None):
             for p in pedacos:
                 if on_delta:
                     on_delta(p)
@@ -61,7 +61,7 @@ def test_worker_loop_para_de_emitir_deltas_apos_cancelar_a_meio(monkeypatch):
     delta já fechado pelo 'parado.' na UI."""
 
     class FakeJC:
-        async def ask(self, prompt, on_delta=None):
+        async def ask(self, prompt, on_delta=None, model=None):
             if on_delta:
                 on_delta("primeiro ")
             cancel_evento.set()   # simula o Fábio a carregar em Parar a meio da resposta
