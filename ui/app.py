@@ -570,13 +570,9 @@ class App:
             self.chat.see("end")
 
     # --- resposta a fluir (kind="delta") ------------------------------------
-    # O backend ainda NÃO emite deltas: hoje a resposta chega inteira num
-    # ("assistant", texto). Este handler fica pronto e dormente — o poll já ignora
-    # kinds que não conhece, portanto não muda nada do fluxo atual. Para o ligar,
-    # falta do lado do brain/: include_partial_messages=True nas ClaudeAgentOptions,
-    # tratar as mensagens StreamEvent no ask(), e o worker do main.py pôr cada
-    # pedaço na ui_queue como ("delta", texto). A ("assistant", ...) final continua
-    # a ser precisa: é ela que fecha o bloco e o re-desenha formatado.
+    # O backend emite ("delta", texto) na ui_queue à medida que gera; aqui vamos
+    # acumulando o rascunho cru. Quando chega o ("assistant", texto) final,
+    # _apagar_delta() limpa o rascunho e a resposta é repintada formatada.
     def _delta(self, payload):
         texto = str(payload)
         if not texto:

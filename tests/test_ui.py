@@ -269,7 +269,7 @@ def test_cancelar_a_meio_guarda_o_que_ja_fluiu(chat):
 
 
 def test_delta_sem_stream_ativo_nao_rebenta(chat):
-    """Os _fechar/_apagar são no-op sem stream: hoje o backend nunca emite deltas."""
+    """Os _fechar/_apagar são no-op sem stream ativo (nenhum delta chegou ainda)."""
     chat._fechar_delta()
     chat._apagar_delta()
     chat._append_msg("assistant", "resposta inteira de uma vez")
