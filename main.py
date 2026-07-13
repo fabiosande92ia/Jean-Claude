@@ -2,6 +2,7 @@
 import asyncio
 import queue
 import threading
+import uuid
 from pathlib import Path
 from core import config
 from brain.agent import JeanClaude
@@ -9,7 +10,9 @@ from brain import memory
 from voice import stt, tts, hotkey
 from ui import app as ui_app
 
-REC_PATH = str(config.PROJECT_ROOT / "_jc_rec.wav")
+
+def new_rec_path() -> str:
+    return str(config.PROJECT_ROOT / f"_jc_rec_{uuid.uuid4().hex}.wav")
 
 
 def build_prompt(index: str, texto: str) -> str:
@@ -17,14 +20,19 @@ def build_prompt(index: str, texto: str) -> str:
 
 
 def worker_loop(rec_queue: "queue.Queue", ui_queue: "queue.Queue", stop_event: threading.Event):
-    jc = JeanClaude()
+    try:
+        jc = JeanClaude()
+        index = memory.read_index()
+    except Exception as e:
+        ui_queue.put(("error", f"Falha a iniciar o worker (agente/memória): {e}"))
+        ui_queue.put(("state", "idle"))
+        return
+
     try:
         speaker = tts.get_tts()
     except Exception as e:
         ui_queue.put(("error", f"Falha a carregar a voz Piper: {e}"))
         speaker = None
-
-    index = memory.read_index()
 
     while not stop_event.is_set():
         try:
@@ -60,7 +68,7 @@ def main():
         ui_queue.put(("state", "recording"))
 
     def end_recording():
-        path = recorder.stop(REC_PATH)
+        path = recorder.stop(new_rec_path())
         if path:
             ui_queue.put(("state", "processing"))
             rec_queue.put(path)
