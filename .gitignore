@@ -8,4 +8,8 @@ models/
 *.onnx
 *.onnx.json
 .jc-config/credentials.json
+.jc-config/.claude.json
+.jc-config/backups/
+.jc-config/projects/
+.jc-config/sessions/
 .pytest_cache/
