@@ -157,6 +157,15 @@ def _hora(ts: str | None) -> str:
     return datetime.now().strftime("%H:%M")
 
 
+def _ding():
+    """Beep curto de fim de consola. No-op fora de Windows."""
+    try:
+        import winsound
+        winsound.MessageBeep(winsound.MB_OK)
+    except Exception:
+        pass
+
+
 # --- código na chat ---------------------------------------------------------
 def segmentos_code(texto: str) -> list[tuple[str, bool]]:
     """
@@ -248,13 +257,15 @@ def _ecra_virtual(root) -> tuple[int, int, int, int]:
 
 class App:
     def __init__(self, root, on_press, on_release, ui_queue, on_close, tts_enabled,
-                 on_text=None, on_cancel=None, hotkey_label="?", historico=()):
+                 on_text=None, on_cancel=None, hotkey_label="?", historico=(),
+                 on_reiniciar=None):
         self.root = root
         self.ui_queue = ui_queue
         self.on_close = on_close
         self.tts_enabled = tts_enabled
         self.on_text = on_text
         self.on_cancel = on_cancel
+        self.on_reiniciar = on_reiniciar
 
         self._estado = "loading"
         self._desde = time.monotonic()
@@ -266,6 +277,9 @@ class App:
         self._placeholder_ativo = False
         self._delta_ativo = False
         self._modelo = None
+        self._consola_run = False
+        self._consola_modelo = None
+        self._consola_visto = True     # badge só acende quando há algo por ver
 
         escala = _dpi_setup(root)
         root.title("Jean Claude")
@@ -327,9 +341,44 @@ class App:
         self._refresh_tts_button()
         self._refresh_topo_button()
 
+        # Chat e Consola em abas: state_label/vu/botoes/linha ficam globais (acima),
+        # o resto (histórico de conversa, log da consola em segundo plano) fica em
+        # cada aba — trocar de aba não esconde nem interrompe o outro lado.
+        self.nb = ttk.Notebook(root, style="JC.TNotebook")
+        self.nb.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        aba_chat = tk.Frame(self.nb, bg=BG)
+        self.nb.add(aba_chat, text="Chat")
+
+        aba_consola = tk.Frame(self.nb, bg=BG)
+        self.nb.add(aba_consola, text="Consola")
+        self._idx_consola = self.nb.index("end") - 1
+        self.nb.bind("<<NotebookTabChanged>>", self._on_tab)
+
+        moldura_cons = tk.Frame(aba_consola, bg=BG_ALT)
+        moldura_cons.pack(fill="both", expand=True, padx=8, pady=8)
+        self.consola_txt = tk.Text(
+            moldura_cons, state="disabled", wrap="word",
+            bg=COR_CODE_BG, fg=COR_CODE_FG, font=FONTE_CODE,
+            relief="flat", bd=0, padx=8, pady=8,
+        )
+        cons_scroll = ttk.Scrollbar(moldura_cons, orient="vertical",
+                                     style="JC.Vertical.TScrollbar", command=self.consola_txt.yview)
+        self.consola_txt.configure(yscrollcommand=cons_scroll.set)
+        cons_scroll.pack(side="right", fill="y")
+        self.consola_txt.pack(side="left", fill="both", expand=True)
+
+        self.btn_reiniciar = tk.Button(
+            aba_consola, text="Consola acabou — reiniciar pra aplicar",
+            font=FONTE, command=self._reiniciar_app,
+            bg=BOTAO_ENVIAR, fg="white", activebackground=BOTAO_ENVIAR_ATIVO,
+            activeforeground="white", relief="flat", bd=0, pady=6,
+        )
+        # escondido até a consola acabar (pack só no consola_fim)
+
         # tk.Text + ttk.Scrollbar em vez de ScrolledText: o ScrolledText traz um
         # tk.Scrollbar default, uma barra branca berrante colada ao tema escuro.
-        moldura_chat = tk.Frame(root, bg=BG_ALT)
+        moldura_chat = tk.Frame(aba_chat, bg=BG_ALT)
         moldura_chat.pack(fill="both", expand=True, padx=8, pady=8)
 
         self.chat = tk.Text(
@@ -358,7 +407,7 @@ class App:
 
         # Escrever, não só falar. Mic morto, alguém ao lado, uma call a decorrer:
         # sem isto a app é inútil. O texto entra na pipeline direto (salta o STT).
-        entrada = tk.Frame(root, bg=BG)
+        entrada = tk.Frame(aba_chat, bg=BG)
         entrada.pack(fill="x", padx=8, pady=(0, 8))
 
         self.entry = tk.Entry(
@@ -432,12 +481,12 @@ class App:
     # --- tema ---------------------------------------------------------------
     def _estilo_ttk(self, root):
         """
-        Scrollbar escuro.
+        Scrollbar e Notebook escuros.
 
-        O tema nativo do Windows ("vista") desenha o scrollbar com bitmaps do SO e
-        ignora troughcolor/background — daí a barra branca. O "clam" é desenhado
-        pelo Tk e aceita cores. Só temos um widget ttk (este scrollbar), portanto
-        trocar o tema global não mexe em mais nada.
+        O tema nativo do Windows ("vista") desenha estes widgets com bitmaps do SO
+        e ignora troughcolor/background — daí a barra e as abas brancas. O "clam" é
+        desenhado pelo Tk e aceita cores. Os widgets ttk da app usam estes estilos
+        nomeados, portanto trocar o tema global não mexe em mais nada.
         """
         estilo = ttk.Style(root)
         with contextlib.suppress(tk.TclError):
@@ -449,6 +498,19 @@ class App:
             relief="flat",
         )
         estilo.map("JC.Vertical.TScrollbar", background=[("active", FG_DIM)])
+
+        estilo.configure(
+            "JC.TNotebook", background=BG, bordercolor=BG, darkcolor=BG, lightcolor=BG,
+        )
+        estilo.configure(
+            "JC.TNotebook.Tab", background=BG_ALT, foreground=FG_DIM,
+            padding=(12, 6), borderwidth=0,
+        )
+        estilo.map(
+            "JC.TNotebook.Tab",
+            background=[("selected", BORDA)],
+            foreground=[("selected", FG)],
+        )
 
     # --- input --------------------------------------------------------------
     def _placeholder_on(self):
@@ -705,6 +767,35 @@ class App:
                 0, 0, int(largura * nivel), VU_ALTURA, fill=cor, width=0, tags="bar"
             )
 
+    # --- consola (corrida em segundo plano) --------------------------------
+    def _on_tab(self, _event=None):
+        if self.nb.index("current") == self._idx_consola:
+            self._consola_visto = True
+            self._refresh_badge_consola()
+
+    def _append_consola(self, linha):
+        self.consola_txt.config(state="normal")
+        self.consola_txt.insert("end", linha + "\n")
+        self.consola_txt.config(state="disabled")
+        self.consola_txt.see("end")
+
+    def _refresh_badge_consola(self):
+        if self._consola_run:
+            passado = time.monotonic() - self._desde
+            frame = SPINNER[int(passado * 10) % len(SPINNER)]
+            modelo = f" · {self._consola_modelo}" if self._consola_modelo else ""
+            texto = f"{frame} Consola{modelo}"
+        elif not self._consola_visto:
+            texto = "✓ Consola"
+        else:
+            texto = "Consola"
+        self.nb.tab(self._idx_consola, text=texto)
+
+    def _reiniciar_app(self):
+        if self.on_reiniciar:
+            self.on_reiniciar()
+        self._handle_close()
+
     # --- loop -------------------------------------------------------------
     def _poll(self):
         try:
@@ -727,6 +818,23 @@ class App:
                 elif kind == "modelo":
                     self._modelo = payload
                     self._cache_estado = None   # força o header a redesenhar já
+                elif kind == "consola":
+                    self._append_consola(payload)
+                elif kind == "consola_estado":
+                    self._consola_run = bool(payload.get("run"))
+                    if "modelo" in payload:
+                        self._consola_modelo = payload["modelo"]
+                    if self._consola_run:
+                        self._consola_visto = self.nb.index("current") == self._idx_consola
+                    self._refresh_badge_consola()
+                elif kind == "consola_fim":
+                    self._append_consola(f"\n{payload}\n")
+                    self._consola_run = False
+                    self._consola_visto = self.nb.index("current") == self._idx_consola
+                    self._refresh_badge_consola()
+                    self.btn_reiniciar.pack(fill="x", padx=8, pady=(0, 8))
+                    _ding()
+                    self._append_msg("assistant", f"Consola acabou. {payload}")
                 else:
                     if kind == "assistant":
                         self._apagar_delta()   # a final substitui o que fluiu
@@ -742,12 +850,15 @@ class App:
         finally:
             if not self._a_fechar:
                 self._refresh_estado()
+                if self._consola_run:
+                    self._refresh_badge_consola()
                 self.root.after(50, self._poll)
 
 
 def launch(on_press, on_release, ui_queue, on_close, tts_enabled,
-           on_text=None, on_cancel=None, hotkey_label="?", historico=()):
+           on_text=None, on_cancel=None, hotkey_label="?", historico=(), on_reiniciar=None):
     root = tk.Tk()
     App(root, on_press, on_release, ui_queue, on_close, tts_enabled,
-        on_text=on_text, on_cancel=on_cancel, hotkey_label=hotkey_label, historico=historico)
+        on_text=on_text, on_cancel=on_cancel, hotkey_label=hotkey_label,
+        historico=historico, on_reiniciar=on_reiniciar)
     root.mainloop()
