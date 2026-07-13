@@ -55,6 +55,9 @@ def parse_evento(ev: dict) -> str | None:
     return None
 
 
+_RESERVANDO = object()   # sentinel: reserva o slot sob lock antes do Popen, fecha a janela TOCTOU
+
+
 class ConsoleRunner:
     def __init__(self, ui_queue, on_terminou):
         self.ui_queue = ui_queue
@@ -70,9 +73,15 @@ class ConsoleRunner:
         with self._lock:
             if self._proc is not None:
                 return False, "Já há uma consola a correr. Espera que acabe."
+            self._proc = _RESERVANDO   # reserva já, sob lock: ninguém mais passa o guard
+
         if sys.platform != "win32":
+            with self._lock:
+                self._proc = None
             return False, "A consola de desenvolvimento só está implementada em Windows."
         if shutil.which("claude") is None:
+            with self._lock:
+                self._proc = None
             return False, ("Claude Code não está no PATH — instala com: "
                            "npm install -g @anthropic-ai/claude-code")
 
@@ -103,6 +112,8 @@ class ConsoleRunner:
                 errors="replace",
             )
         except Exception as e:
+            with self._lock:
+                self._proc = None
             return False, f"Falha a abrir a consola: {type(e).__name__}: {e}"
 
         with self._lock:

@@ -79,13 +79,15 @@ def test_start_recusa_segunda_consola(monkeypatch, tmp_path):
     _preparar(monkeypatch, tmp_path)
     proc = FakeProc([])                       # stdout vazio: reader fica logo no wait()
     monkeypatch.setattr(consola.subprocess, "Popen", lambda *a, **k: proc)
-    runner = consola.ConsoleRunner(FilaFalsa(), on_terminou=lambda: None)
+    terminou = threading.Event()
+    runner = consola.ConsoleRunner(FilaFalsa(), on_terminou=terminou.set)
 
     ok1, _ = runner.start("pedido 1", "baixa")
     assert ok1 and runner.is_running()
     ok2, motivo = runner.start("pedido 2", "baixa")
     assert ok2 is False and "a correr" in motivo
     proc.terminar()
+    assert terminou.wait(timeout=2)   # espera a thread acabar antes do monkeypatch reverter os paths
 
 
 def test_start_fora_de_windows_recusa(monkeypatch, tmp_path):
