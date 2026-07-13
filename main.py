@@ -37,6 +37,8 @@ async def run():
         except KeyboardInterrupt:
             print("\nJean Claude off.")
             break
+        except Exception as e:
+            print(f"[erro neste turno, a continuar] {type(e).__name__}: {e}\n")
         finally:
             Path(REC_PATH).unlink(missing_ok=True)
 
