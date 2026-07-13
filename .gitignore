@@ -18,3 +18,5 @@ models/
 .jc-config/projects/
 .jc-config/sessions/
 .pytest_cache/
+.jc-config/conversas.jsonl
+.jc-config/pedido-consola.md

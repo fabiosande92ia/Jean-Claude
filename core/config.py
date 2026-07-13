@@ -2,6 +2,29 @@
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# --- caveman -----------------------------------------------------------------
+# O estilo do Jean Claude vem do plugin caveman REAL (o mesmo do Claude Code do
+# Fábio), não de regras à mão no CLAUDE.md. O nível vai por env var
+# (CAVEMAN_DEFAULT_MODE) só no subprocess do SDK: as sessões do Fábio neste
+# repo não são afetadas.
+CAVEMAN_MODE = "ultra"
+_CAVEMAN_CACHE = Path.home() / ".claude" / "plugins" / "cache" / "caveman" / "caveman"
+
+
+def caveman_plugin_path() -> Path | None:
+    """
+    Diretório do plugin caveman mais recente na cache do Claude Code do Fábio.
+    None se não estiver instalado — o Jean Claude fala normal, ninguém morre.
+    (A cache muda de hash a cada update do plugin: daí resolver em runtime.)
+    """
+    if not _CAVEMAN_CACHE.is_dir():
+        return None
+    candidatos = [
+        p for p in _CAVEMAN_CACHE.iterdir()
+        if (p / ".claude-plugin" / "plugin.json").is_file()
+    ]
+    return max(candidatos, key=lambda p: p.stat().st_mtime, default=None)
 CONFIG_DIR = PROJECT_ROOT / ".jc-config"
 MEMORY_DIR = PROJECT_ROOT / "memory"
 SKILLS_DIR = PROJECT_ROOT / "skills"
@@ -10,4 +33,22 @@ CLAUDE_MD = CONFIG_DIR / "CLAUDE.md"
 ALLOWED_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
 
 WHISPER_MODEL = "large-v3"
-HOTKEY = "space"
+
+# Tecla de push-to-talk. Fonte ÚNICA de verdade: voice.hotkey.resolve() traduz este
+# nome para a tecla real *e* para o rótulo que a UI mostra no botão. Antes isto dizia
+# "space" enquanto o main.py usava numpad e a UI escrevia "Numpad -" à mão — três
+# sítios, uma verdade, dois a mentir. Nomes válidos: voice.hotkey.KEYS.
+HOTKEY = "numpad_minus"
+
+# Conversa persistida entre arranques. Fica em .jc-config (gitignored): é privada.
+CONVERSA_FILE = CONFIG_DIR / "conversas.jsonl"
+
+# Pedido de alteração ao código do próprio JC, entregue à consola Claude Code por
+# ficheiro. Por ficheiro e não por argumento: texto arbitrário dentro de um
+# `cmd /k claude "..."` é injeção de comandos.
+PEDIDO_CONSOLA = CONFIG_DIR / "pedido-consola.md"
+HISTORY_SIZE = 5      # trocas recentes injetadas no prompt do agente
+HISTORY_REPLAY = 20   # mensagens recarregadas para o chat ao arrancar
+
+# Abaixo deste pico de RMS, a gravação é silêncio: o mic está mudo ou é o errado.
+MIC_SILENCE_THRESHOLD = 0.005
