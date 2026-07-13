@@ -1,4 +1,7 @@
 # voice/tts.py
+import os
+import tempfile
+import uuid
 import wave
 from pathlib import Path
 from abc import ABC, abstractmethod
@@ -17,12 +20,16 @@ class TTS(ABC):
 
     def speak(self, text: str) -> None:
         """Sintetiza e toca em voz alta."""
-        tmp = str(config.PROJECT_ROOT / "_jc_tts_tmp.wav")
-        self.synth(text, tmp)
-        data, sr = sf.read(tmp)
-        sd.play(data, sr)
-        sd.wait()
-        Path(tmp).unlink(missing_ok=True)
+        # Path único no temp do SO. Era fixo e na raiz do repo: dois speak() em
+        # paralelo escreviam o mesmo ficheiro, e um crash deixava lixo no projeto.
+        tmp = os.path.join(tempfile.gettempdir(), f"_jc_tts_{uuid.uuid4().hex}.wav")
+        try:
+            self.synth(text, tmp)
+            data, sr = sf.read(tmp)
+            sd.play(data, sr)
+            sd.wait()
+        finally:
+            Path(tmp).unlink(missing_ok=True)
 
 
 class PiperTTS(TTS):

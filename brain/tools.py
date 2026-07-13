@@ -8,11 +8,11 @@ SCREENSHOT_TOOL_NAME = "mcp__jc__screenshot"
 
 @tool("screenshot", "Captura o ecrã atual do Fábio e devolve a imagem para o Jean Claude ver.", {})
 async def screenshot(args):
-    png = screen.capture_png()
-    b64 = base64.standard_b64encode(png).decode("ascii")
+    jpeg = screen.capture_jpeg()
+    b64 = base64.standard_b64encode(jpeg).decode("ascii")
     return {
         "content": [
-            {"type": "image", "data": b64, "mimeType": "image/png"}
+            {"type": "image", "data": b64, "mimeType": "image/jpeg"}
         ]
     }
 

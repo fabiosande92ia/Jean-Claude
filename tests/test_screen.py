@@ -17,7 +17,7 @@ def _has_display() -> bool:
 pytestmark = pytest.mark.skipif(not _has_display(), reason="no screen/display available for capture")
 
 
-def test_capture_png_returns_png_bytes():
-    data = screen.capture_png()
+def test_capture_jpeg_returns_jpeg_bytes():
+    data = screen.capture_jpeg()
     assert isinstance(data, bytes)
-    assert data[:8] == b"\x89PNG\r\n\x1a\n"  # magic bytes PNG
+    assert data[:3] == b"\xff\xd8\xff"  # magic bytes JPEG
