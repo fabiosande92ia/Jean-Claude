@@ -258,6 +258,7 @@ class App:
         self._hotkey_label = hotkey_label
         self._placeholder = f"escreve ou usa {hotkey_label}"
         self._placeholder_ativo = False
+        self._delta_ativo = False
 
         escala = _dpi_setup(root)
         root.title("Jean Claude")
@@ -568,6 +569,53 @@ class App:
         if colado:
             self.chat.see("end")
 
+    # --- resposta a fluir (kind="delta") ------------------------------------
+    # O backend ainda NÃO emite deltas: hoje a resposta chega inteira num
+    # ("assistant", texto). Este handler fica pronto e dormente — o poll já ignora
+    # kinds que não conhece, portanto não muda nada do fluxo atual. Para o ligar,
+    # falta do lado do brain/: include_partial_messages=True nas ClaudeAgentOptions,
+    # tratar as mensagens StreamEvent no ask(), e o worker do main.py pôr cada
+    # pedaço na ui_queue como ("delta", texto). A ("assistant", ...) final continua
+    # a ser precisa: é ela que fecha o bloco e o re-desenha formatado.
+    def _delta(self, payload):
+        texto = str(payload)
+        if not texto:
+            return
+        colado = self._at_bottom()
+        self.chat.config(state="normal")
+        if not self._delta_ativo:
+            self._delta_ativo = True
+            # Marca com gravidade à esquerda: fica onde está enquanto se insere à
+            # frente dela, e serve para apagar o bloco todo quando a final chegar.
+            self.chat.mark_set("delta_inicio", "end-1c")
+            self.chat.mark_gravity("delta_inicio", "left")
+            self.chat.insert("end", f"[{_hora(None)}] ", "hora")
+            self.chat.insert("end", "Jean Claude: ", "assistant")
+        self.chat.insert("end", texto)
+        self.chat.config(state="disabled")
+        if colado:
+            self.chat.see("end")
+
+    def _fechar_delta(self):
+        """Fecha o bloco e deixa na chat o que já fluiu (ex.: job cancelado a meio)."""
+        if not self._delta_ativo:
+            return
+        self._delta_ativo = False
+        self.chat.config(state="normal")
+        self.chat.insert("end", "\n\n")
+        self.chat.config(state="disabled")
+
+    def _apagar_delta(self):
+        """Apaga o bloco a fluir: a mensagem final é autoritativa e vem formatada
+        (blocos de código com tag). Os pedaços entram crus — uma cerca ``` parte-se
+        entre deltas e não dá para segmentar a meio."""
+        if not self._delta_ativo:
+            return
+        self._delta_ativo = False
+        self.chat.config(state="normal")
+        self.chat.delete("delta_inicio", "end-1c")
+        self.chat.config(state="disabled")
+
     def _append_msg(self, role, text, ts=None):
         if role == "user":
             self._append("Fábio: ", text, "user", ts)
@@ -660,7 +708,13 @@ class App:
                     elif payload == "sair":
                         self._handle_close()
                         return   # janela destruída: não reagendar o poll
+                elif kind == "delta":
+                    self._delta(payload)
                 else:
+                    if kind == "assistant":
+                        self._apagar_delta()   # a final substitui o que fluiu
+                    else:
+                        self._fechar_delta()   # erro/info a meio: guarda o que já veio
                     # .get()/else e não índice direto: um kind desconhecido rebentava o
                     # _poll dentro do callback do Tk e a UI congelava para sempre.
                     self._append_msg(kind, payload)

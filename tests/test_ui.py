@@ -1,4 +1,6 @@
 import inspect
+import tkinter as tk
+
 import pytest
 from ui import app as ui_app
 
@@ -208,3 +210,67 @@ def test_ui_state_corrompido_nao_rebenta(tmp_path, monkeypatch):
 def test_ui_state_ausente_nao_rebenta(tmp_path, monkeypatch):
     monkeypatch.setattr(ui_app.config, "UI_STATE_FILE", tmp_path / "nao-existe.json")
     assert ui_app.carregar_ui_state() == {}
+
+
+# --- resposta a fluir (kind="delta") ---------------------------------------
+@pytest.fixture(scope="module")
+def tk_root():
+    # Um root para todos: criar e destruir um Tk() por teste falhava de vez em
+    # quando com TclError, e um teste que se auto-desliga não testa nada.
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("sem display para o Tk")
+    root.withdraw()
+    yield root
+    root.destroy()
+
+
+@pytest.fixture
+def chat(tk_root):
+    """App com um Text a sério (o _delta usa marks do widget), sem janela nem tray."""
+    app = object.__new__(ui_app.App)
+    app.chat = tk.Text(tk_root)
+    app._delta_ativo = False
+    yield app
+    app.chat.destroy()
+
+
+def texto_da(app):
+    return app.chat.get("1.0", "end")
+
+
+def test_deltas_vao_aparecendo_no_mesmo_bloco(chat):
+    chat._delta("isto ")
+    chat._delta("chega ")
+    chat._delta("aos bocados")
+    saida = texto_da(chat)
+    assert "Jean Claude: isto chega aos bocados" in saida
+    assert saida.count("Jean Claude:") == 1   # um bloco, não um por pedaço
+
+
+def test_resposta_final_substitui_o_que_fluiu(chat):
+    chat._delta("isto chega ")
+    chat._delta("aos bocados")
+    chat._apagar_delta()
+    chat._append_msg("assistant", "isto chega aos bocados")
+    saida = texto_da(chat)
+    assert saida.count("isto chega aos bocados") == 1   # sem duplicar a resposta
+    assert saida.count("Jean Claude:") == 1
+
+
+def test_cancelar_a_meio_guarda_o_que_ja_fluiu(chat):
+    chat._delta("metade da resp")
+    chat._fechar_delta()
+    chat._append_msg("info", "parado.")
+    saida = texto_da(chat)
+    assert "metade da resp" in saida   # o que já se viu não desaparece
+    assert "parado." in saida
+
+
+def test_delta_sem_stream_ativo_nao_rebenta(chat):
+    """Os _fechar/_apagar são no-op sem stream: hoje o backend nunca emite deltas."""
+    chat._fechar_delta()
+    chat._apagar_delta()
+    chat._append_msg("assistant", "resposta inteira de uma vez")
+    assert "resposta inteira de uma vez" in texto_da(chat)
