@@ -17,10 +17,11 @@ Corre localmente numa máquina com RTX 3060 (12GB VRAM). Voz processada 100% loc
 2. **Fala caveman ultra** — estilo de comunicação comprimido, embutido no prompt (não herdado do setup global do utilizador).
 3. **Interface voz + texto** — push-to-talk por tecla; responde em voz (TTS) e mostra texto no ecrã.
 4. **Controlo do PC** — abrir apps, ficheiros, correr comandos, automatizar tarefas Windows.
-5. **Pesquisa web / Q&A** — pesquisa internet, responde perguntas, ajuda geral.
-6. **Rotinas / lembretes** — (fase posterior) tarefas agendadas e automações.
-7. **Memória persistente** — factos sobre utilizador e PC em markdown, acumulados ao longo do tempo.
-8. **Auto-melhoria** — criar skills novas (livre), auto-diagnóstico de erros, editar core (gated por confirmação + git).
+5. **Visão de ecrã** — captura screenshot do ecrã e "vê" (cérebro Claude é multimodal). Para "o que está no meu ecrã?", UI, erros visuais. Estado de projetos lê-se por ficheiros/git, não por pixels.
+6. **Pesquisa web / Q&A** — pesquisa internet, responde perguntas, ajuda geral.
+7. **Rotinas / lembretes** — (fase posterior) tarefas agendadas e automações.
+8. **Memória persistente** — factos sobre utilizador e PC em markdown, acumulados ao longo do tempo.
+9. **Auto-melhoria** — criar skills novas (livre), auto-diagnóstico de erros, editar core (gated por confirmação + git).
 
 ### Não-funcionais
 - **Isolamento total** do `~/.claude` global do utilizador — config, memória, skills próprias. Sem herdar plugins/MCP/skills existentes.
@@ -57,6 +58,7 @@ Piper (CPU, leve) disponível como fallback rápido de TTS.
 | `voice/stt.py` | Grava mic + transcreve (faster-whisper) | sounddevice, faster-whisper |
 | `voice/tts.py` | Sintetiza fala (XTTS-v2, fallback Piper) | coqui TTS / piper |
 | `voice/hotkey.py` | Deteta push-to-talk | keyboard/pynput |
+| `vision/screen.py` | Captura screenshot, entrega imagem ao cérebro | mss, Pillow |
 | `memory/` | Factos markdown + `MEMORY.md` índice | filesystem |
 | `skills/` | Ferramentas/scripts auto-criados pelo Jean Claude | — |
 | `core/config.py` | Config, paths, `CLAUDE_CONFIG_DIR` isolado | — |
@@ -72,6 +74,8 @@ jean-claude/
     stt.py                    # faster-whisper
     tts.py                    # XTTS-v2 + fallback Piper
     hotkey.py                 # deteção push-to-talk
+  vision/
+    screen.py                 # captura de ecrã (mss) p/ visão
   core/
     config.py                 # paths, config isolada (edições gated)
   skills/                     # tools auto-criadas (crescem sozinhas)
@@ -120,6 +124,7 @@ jean-claude/
 - `piper-tts` (TTS fallback, CPU)
 - `sounddevice` (captura de microfone)
 - `pynput` ou `keyboard` (push-to-talk)
+- `mss` + `Pillow` (captura de ecrã / visão)
 - PyTorch com CUDA (RTX 3060)
 
 ## Auth
@@ -131,6 +136,7 @@ Subscrição **MAX**. O Agent SDK autentica via token de login do Claude Code (`
 ### v1 (primeiro plano de implementação)
 - Loop push-to-talk (voz local: Whisper + XTTS)
 - Cérebro via Agent SDK, isolado, tools básicas
+- Visão de ecrã (screenshot → cérebro multimodal)
 - Persona Jean Claude + caveman ultra
 - Memória markdown (ler/escrever)
 - Criar skills novas (livre)
@@ -161,4 +167,5 @@ Subscrição **MAX**. O Agent SDK autentica via token de login do Claude Code (`
 3. Executa uma tarefa real no PC (ex: abrir app, criar ficheiro) por comando de voz.
 4. Escreve uma memória nova sobre o Fábio e lê-a numa sessão seguinte.
 5. Cria uma skill nova a pedido e usa-a.
-6. Tudo isolado do `~/.claude` global; auth via subscrição MAX.
+6. Tira screenshot e descreve corretamente o que está no ecrã (ex: janela do VS Code).
+7. Tudo isolado do `~/.claude` global; auth via subscrição MAX.
