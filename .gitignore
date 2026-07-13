@@ -20,3 +20,4 @@ models/
 .pytest_cache/
 .jc-config/conversas.jsonl
 .jc-config/pedido-consola.md
+.jc-config/ui.json

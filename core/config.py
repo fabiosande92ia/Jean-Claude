@@ -43,6 +43,10 @@ HOTKEY = "numpad_minus"
 # Conversa persistida entre arranques. Fica em .jc-config (gitignored): é privada.
 CONVERSA_FILE = CONFIG_DIR / "conversas.jsonl"
 
+# Posição/tamanho da janela entre arranques. Mesmo sítio da conversa: é estado
+# local desta máquina, não configuração do projeto.
+UI_STATE_FILE = CONFIG_DIR / "ui.json"
+
 # Pedido de alteração ao código do próprio JC, entregue à consola Claude Code por
 # ficheiro. Por ficheiro e não por argumento: texto arbitrário dentro de um
 # `cmd /k claude "..."` é injeção de comandos.

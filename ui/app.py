@@ -1,11 +1,14 @@
 # ui/app.py
 import contextlib
+import json
 import queue
+import re
 import time
 import tkinter as tk
 from datetime import datetime
 from tkinter import ttk
 
+from core import config
 from ui.tray import Tray
 
 # --- tema (um só, coerente) ------------------------------------------------
@@ -26,6 +29,9 @@ COR_ASSIST = "#5fd18b"
 COR_ERRO = "#ff6b60"
 COR_INFO = "#c9a227"
 
+COR_CODE_BG = "#17181b"   # um degrau abaixo do BG_ALT: o bloco lê-se como bloco
+COR_CODE_FG = "#e8c07d"
+
 VU_OK = "#5fd18b"
 VU_CLIP = "#ff6b60"
 VU_TRACK = BORDA        # trilho sempre desenhado: canvas vazio parecia partido
@@ -40,8 +46,12 @@ BOTAO_OFF = "#34373c"   # botão desativado: apagado, não só cinzento no texto
 FONTE = ("Segoe UI", 10)
 FONTE_CHAT = ("Segoe UI", 10)
 FONTE_ESTADO = ("Segoe UI", 12, "bold")
+FONTE_CODE = ("Consolas", 10)
 
 JANELA_MIN = (420, 480)
+JANELA_DEFAULT = (540, 680)
+# Pedaço da janela que tem de ficar dentro do ecrã para ser agarrável com o rato.
+VISIVEL_MIN = (120, 60)
 
 STATE_COLORS = {
     "idle": "#888888",
@@ -141,6 +151,95 @@ def _hora(ts: str | None) -> str:
     return datetime.now().strftime("%H:%M")
 
 
+# --- código na chat ---------------------------------------------------------
+def segmentos_code(texto: str) -> list[tuple[str, bool]]:
+    """
+    Parte o texto pelas cercas ``` -> [(trecho, é_código), ...].
+
+    A linha da cerca (e a linguagem, ```python) desaparece: é sintaxe, não conteúdo.
+    Cerca por fechar -> o resto é código; melhor um bloco a mais do que perder texto.
+    """
+    partes: list[tuple[str, bool]] = []
+    dentro = False
+    buf: list[str] = []
+    for linha in str(texto).split("\n"):
+        if linha.lstrip().startswith("```"):
+            partes.append(("\n".join(buf), dentro))
+            buf = []
+            dentro = not dentro
+            continue
+        buf.append(linha)
+    partes.append(("\n".join(buf), dentro))
+    return [(t.strip("\n"), c) for t, c in partes if t.strip()]
+
+
+# --- geometria da janela ----------------------------------------------------
+_GEOMETRY_RE = re.compile(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)")
+
+
+def parse_geometry(geo: str) -> tuple[int, int, int, int] | None:
+    """'540x680+100+50' -> (w, h, x, y). None se não for uma geometry do Tk."""
+    m = _GEOMETRY_RE.fullmatch(str(geo).strip())
+    if not m:
+        return None
+    w, h, x, y = (int(g) for g in m.groups())
+    return w, h, x, y
+
+
+def geometry_cabe(geo: str, ecra: tuple[int, int, int, int]) -> bool:
+    """
+    A geometry guardada ainda serve no setup de monitores de agora?
+
+    Sem isto, desligar o segundo monitor abria a janela a 1900px de distância, fora
+    de todos os ecrãs: a app arrancava invisível e parecia morta. Exige barra de
+    título dentro do ecrã e um pedaço horizontal agarrável.
+    """
+    p = parse_geometry(geo)
+    if not p:
+        return False
+    w, h, x, y = p
+    ex, ey, ew, eh = ecra
+    if w < JANELA_MIN[0] or h < JANELA_MIN[1]:
+        return False
+    if w > ew or h > eh:
+        return False
+    if y < ey or y > ey + eh - VISIVEL_MIN[1]:
+        return False   # barra de título acima do topo ou abaixo do fundo: não se agarra
+    if x + w < ex + VISIVEL_MIN[0] or x > ex + ew - VISIVEL_MIN[0]:
+        return False   # janela toda para lá da borda esquerda/direita
+    return True
+
+
+def carregar_ui_state() -> dict:
+    try:
+        dados = json.loads(config.UI_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}   # ficheiro ausente ou corrompido: arranca no default, não rebenta
+    return dados if isinstance(dados, dict) else {}
+
+
+def guardar_ui_state(dados: dict) -> None:
+    try:
+        config.UI_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        config.UI_STATE_FILE.write_text(json.dumps(dados), encoding="utf-8")
+    except OSError:
+        pass   # não guardar a posição da janela não vale matar o fecho da app
+
+
+def _ecra_virtual(root) -> tuple[int, int, int, int]:
+    """(x, y, w, h) do desktop virtual — todos os monitores, não só o principal."""
+    try:
+        from ctypes import windll
+
+        gsm = windll.user32.GetSystemMetrics
+        x, y, w, h = gsm(76), gsm(77), gsm(78), gsm(79)   # SM_*VIRTUALSCREEN
+        if w > 0 and h > 0:
+            return x, y, w, h
+    except Exception:
+        pass
+    return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
+
+
 class App:
     def __init__(self, root, on_press, on_release, ui_queue, on_close, tts_enabled,
                  on_text=None, on_cancel=None, hotkey_label="?", historico=()):
@@ -162,9 +261,9 @@ class App:
 
         escala = _dpi_setup(root)
         root.title("Jean Claude")
-        root.geometry(f"{int(540 * escala)}x{int(680 * escala)}")
         # Sem minsize, encolher a janela esmagava os botões e o input até sumirem.
         root.minsize(int(JANELA_MIN[0] * escala), int(JANELA_MIN[1] * escala))
+        self._restaurar_geometria(root, escala)
         root.configure(bg=BG)
         self._estilo_ttk(root)
 
@@ -242,6 +341,12 @@ class App:
         self.chat.tag_config("error", foreground=COR_ERRO)
         self.chat.tag_config("info", foreground=COR_INFO)
         self.chat.tag_config("hora", foreground=FG_DIM)
+        # Comandos e código em texto corrido não se distinguiam da prosa — e um
+        # comando mal lido é um comando mal colado no terminal.
+        self.chat.tag_config(
+            "code", font=FONTE_CODE, background=COR_CODE_BG, foreground=COR_CODE_FG,
+            lmargin1=12, lmargin2=12, spacing1=3, spacing3=3,
+        )
 
         # Escrever, não só falar. Mic morto, alguém ao lado, uma call a decorrer:
         # sem isto a app é inútil. O texto entra na pipeline direto (salta o STT).
@@ -289,6 +394,25 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self._handle_close)
         self.entry.focus_set()
         self._poll()
+
+    # --- janela -------------------------------------------------------------
+    def _restaurar_geometria(self, root, escala):
+        root.geometry(f"{int(JANELA_DEFAULT[0] * escala)}x{int(JANELA_DEFAULT[1] * escala)}")
+        estado = carregar_ui_state()
+        geo = estado.get("geometry")
+        if geo and geometry_cabe(geo, _ecra_virtual(root)):
+            root.geometry(geo)
+        if estado.get("zoomed"):
+            with contextlib.suppress(tk.TclError):
+                root.state("zoomed")
+
+    def _guardar_geometria(self):
+        try:
+            zoomed = self.root.state() == "zoomed"
+            geo = self.root.geometry()
+        except tk.TclError:
+            return
+        guardar_ui_state({"geometry": geo, "zoomed": zoomed})
 
     # --- tema ---------------------------------------------------------------
     def _estilo_ttk(self, root):
@@ -403,6 +527,7 @@ class App:
         if self._a_fechar:
             return   # X + "Sair" do tray quase em simultâneo: fechar duas vezes rebentava
         self._a_fechar = True
+        self._guardar_geometria()   # antes do destroy: depois já não há geometry para ler
         self.tray.stop()
         self.on_close()
         self.root.destroy()
@@ -414,6 +539,20 @@ class App:
         except tk.TclError:
             return True
 
+    def _inserir_corpo(self, texto, tag):
+        """Corpo da mensagem, com os blocos ``` em mono e fundo próprio."""
+        partes = segmentos_code(texto)
+        for i, (trecho, codigo) in enumerate(partes):
+            if codigo:
+                if i:
+                    self.chat.insert("end", "\n")   # o bloco começa em linha própria
+                self.chat.insert("end", trecho + "\n", "code")
+            elif tag:
+                self.chat.insert("end", trecho + "\n", tag)
+            else:
+                self.chat.insert("end", trecho + "\n")
+        self.chat.insert("end", "\n")
+
     def _append(self, prefix, text, tag, ts=None):
         # Só faz auto-scroll se já estavas no fundo. Antes era see("end") incondicional:
         # estavas a ler o histórico, chegava resposta, saltava-te a vista para baixo.
@@ -422,9 +561,9 @@ class App:
         self.chat.insert("end", f"[{_hora(ts)}] ", "hora")
         if prefix:
             self.chat.insert("end", prefix, tag)
-            self.chat.insert("end", text + "\n\n")
+            self._inserir_corpo(text, None)   # o corpo fica na cor base; a cor é do prefixo
         else:
-            self.chat.insert("end", text + "\n\n", tag)
+            self._inserir_corpo(text, tag)
         self.chat.config(state="disabled")
         if colado:
             self.chat.see("end")

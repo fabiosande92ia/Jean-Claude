@@ -131,3 +131,80 @@ def test_parar_em_idle_nao_chama_o_backend():
     b.on_cancel = lambda: chamadas.append(1)
     b._parar()
     assert chamadas == [1]
+
+
+# --- código na chat ---------------------------------------------------------
+def test_texto_sem_cercas_e_um_so_trecho():
+    assert ui_app.segmentos_code("olá Fábio") == [("olá Fábio", False)]
+
+
+def test_bloco_de_codigo_e_separado_do_texto():
+    texto = "corre isto:\n```bash\ngit status\n```\ne diz-me"
+    assert ui_app.segmentos_code(texto) == [
+        ("corre isto:", False),
+        ("git status", True),      # a linha da cerca (e a linguagem) some: é sintaxe
+        ("e diz-me", False),
+    ]
+
+
+def test_cerca_por_fechar_nao_perde_texto():
+    assert ui_app.segmentos_code("olha:\n```\ngit log") == [("olha:", False), ("git log", True)]
+
+
+def test_codigo_multilinha_fica_inteiro():
+    (trecho, codigo), = ui_app.segmentos_code("```\nlinha1\nlinha2\n```")
+    assert codigo is True
+    assert trecho == "linha1\nlinha2"   # verbatim: um comando cortado é um comando errado
+
+
+# --- geometria da janela ----------------------------------------------------
+ECRA = (0, 0, 1920, 1080)
+
+
+def test_parse_geometry():
+    assert ui_app.parse_geometry("540x680+100+50") == (540, 680, 100, 50)
+    assert ui_app.parse_geometry("540x680-8-8") == (540, 680, -8, -8)
+    assert ui_app.parse_geometry("540x680") is None      # sem posição: não serve
+    assert ui_app.parse_geometry("lixo") is None
+    assert ui_app.parse_geometry("") is None
+
+
+def test_geometria_boa_e_aceite():
+    assert ui_app.geometry_cabe("540x680+100+50", ECRA)
+
+
+@pytest.mark.parametrize("geo, porque", [
+    ("540x680+3000+50", "todo fora do ecrã à direita"),
+    ("540x680-600+50", "todo fora do ecrã à esquerda"),
+    ("540x680+100+2000", "abaixo do fundo do ecrã"),
+    ("540x680+100-300", "barra de título acima do topo: não se agarra"),
+    ("100x100+100+50", "abaixo do minsize"),
+    ("4000x3000+0+0", "maior que o ecrã"),
+    ("lixo", "geometry corrompida"),
+])
+def test_geometria_ma_e_recusada(geo, porque):
+    assert not ui_app.geometry_cabe(geo, ECRA), porque
+
+
+def test_geometria_no_segundo_monitor_a_esquerda():
+    """Monitor à esquerda do principal tem x negativo — é válido, não é lixo."""
+    ecra = (-1920, 0, 3840, 1080)
+    assert ui_app.geometry_cabe("540x680-1800+50", ecra)
+
+
+def test_ui_state_guarda_e_recarrega(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui_app.config, "UI_STATE_FILE", tmp_path / "ui.json")
+    ui_app.guardar_ui_state({"geometry": "540x680+10+10", "zoomed": False})
+    assert ui_app.carregar_ui_state() == {"geometry": "540x680+10+10", "zoomed": False}
+
+
+def test_ui_state_corrompido_nao_rebenta(tmp_path, monkeypatch):
+    f = tmp_path / "ui.json"
+    f.write_text("{isto não é json", encoding="utf-8")
+    monkeypatch.setattr(ui_app.config, "UI_STATE_FILE", f)
+    assert ui_app.carregar_ui_state() == {}   # arranca no default em vez de morrer
+
+
+def test_ui_state_ausente_nao_rebenta(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui_app.config, "UI_STATE_FILE", tmp_path / "nao-existe.json")
+    assert ui_app.carregar_ui_state() == {}
