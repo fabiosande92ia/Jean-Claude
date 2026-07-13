@@ -1,9 +1,10 @@
 # ui/app.py
+import contextlib
 import queue
 import time
 import tkinter as tk
 from datetime import datetime
-from tkinter.scrolledtext import ScrolledText
+from tkinter import ttk
 
 from ui.tray import Tray
 
@@ -17,6 +18,9 @@ FG = "#e4e6eb"
 FG_DIM = "#8a8f98"
 BORDA = "#3a3d43"
 
+FG_CLARO = "#ffffff"
+FG_ESCURO = "#1a1a1a"
+
 COR_USER = "#6fa8ff"
 COR_ASSIST = "#5fd18b"
 COR_ERRO = "#ff6b60"
@@ -24,18 +28,22 @@ COR_INFO = "#c9a227"
 
 VU_OK = "#5fd18b"
 VU_CLIP = "#ff6b60"
+VU_TRACK = BORDA        # trilho sempre desenhado: canvas vazio parecia partido
 VU_ALTURA = 8
 
 FONTE = ("Segoe UI", 10)
 FONTE_CHAT = ("Segoe UI", 10)
 FONTE_ESTADO = ("Segoe UI", 12, "bold")
 
+JANELA_MIN = (420, 480)
+
 STATE_COLORS = {
     "idle": "#888888",
     "loading": "#6a4bc4",
     "recording": "#cc3333",
     "processing": "#cc9900",
-    "speaking": "#1a73e8",
+    # Era #1a73e8: 4.5:1 com branco, em cima do limite. Um tom abaixo dá margem.
+    "speaking": "#1668cf",
 }
 STATE_LABELS = {
     "idle": "idle",
@@ -50,6 +58,32 @@ UNKNOWN_COLOR = "#444444"
 # distingue trabalho de app pendurada.
 ESTADOS_OCUPADOS = ("loading", "recording", "processing", "speaking")
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+# --- contraste -------------------------------------------------------------
+# O header era sempre texto branco: sobre o amarelo do "a processar" dava 2.6:1 e
+# sobre o cinzento do "idle" 3.5:1 — ilegível de lado, ao sol, ou com a vista
+# cansada. Em vez de fixar a cor do texto, escolhe-se a que lê melhor sobre cada
+# fundo. Um teste garante >= 4.5:1 (WCAG AA) em todos os estados.
+def _luminancia(hexcor: str) -> float:
+    h = hexcor.lstrip("#")
+    canais = []
+    for i in (0, 2, 4):
+        c = int(h[i:i + 2], 16) / 255
+        canais.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    r, g, b = canais
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contraste(cor_a: str, cor_b: str) -> float:
+    """Rácio de contraste WCAG entre duas cores (1.0 = iguais, 21.0 = preto/branco)."""
+    la, lb = _luminancia(cor_a), _luminancia(cor_b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def cor_texto(fundo: str) -> str:
+    """Branco ou quase-preto — o que ler melhor sobre `fundo`."""
+    return FG_CLARO if contraste(FG_CLARO, fundo) >= contraste(FG_ESCURO, fundo) else FG_ESCURO
 
 
 def _dpi_setup(root) -> float:
@@ -115,18 +149,26 @@ class App:
         escala = _dpi_setup(root)
         root.title("Jean Claude")
         root.geometry(f"{int(540 * escala)}x{int(680 * escala)}")
+        # Sem minsize, encolher a janela esmagava os botões e o input até sumirem.
+        root.minsize(int(JANELA_MIN[0] * escala), int(JANELA_MIN[1] * escala))
         root.configure(bg=BG)
+        self._estilo_ttk(root)
 
+        cor_loading = STATE_COLORS["loading"]
         self.state_label = tk.Label(
-            root, text=STATE_LABELS["loading"], bg=STATE_COLORS["loading"], fg="white",
+            root, text=STATE_LABELS["loading"], bg=cor_loading, fg=cor_texto(cor_loading),
             font=FONTE_ESTADO, pady=8,
         )
         self.state_label.pack(fill="x")
 
         # VU meter: sem isto, um mic mudo ou o device errado só se descobre quando o
         # Whisper devolve vazio. Aqui vê-se logo se está a entrar sinal.
+        self._vu_rms = 0.0
         self.vu = tk.Canvas(root, height=VU_ALTURA, bg=BG_ALT, highlightthickness=0)
         self.vu.pack(fill="x")
+        # Sem isto a barra ficava com a largura da última leitura: esticar a janela
+        # deixava-a a meio, encolher fazia-a transbordar.
+        self.vu.bind("<Configure>", lambda e: self._draw_level(self._vu_rms))
 
         botoes = tk.Frame(root, bg=BG)
         botoes.pack(fill="x", padx=8, pady=8)
@@ -163,12 +205,23 @@ class App:
         self._refresh_tts_button()
         self._refresh_topo_button()
 
-        self.chat = ScrolledText(
-            root, state="disabled", wrap="word", width=60, height=24,
+        # tk.Text + ttk.Scrollbar em vez de ScrolledText: o ScrolledText traz um
+        # tk.Scrollbar default, uma barra branca berrante colada ao tema escuro.
+        moldura_chat = tk.Frame(root, bg=BG_ALT)
+        moldura_chat.pack(fill="both", expand=True, padx=8, pady=8)
+
+        self.chat = tk.Text(
+            moldura_chat, state="disabled", wrap="word", width=60, height=24,
             bg=BG_ALT, fg=FG, insertbackground=FG, font=FONTE_CHAT,
             relief="flat", bd=0, padx=8, pady=8,
         )
-        self.chat.pack(fill="both", expand=True, padx=8, pady=8)
+        self.chat_scroll = ttk.Scrollbar(
+            moldura_chat, orient="vertical", style="JC.Vertical.TScrollbar",
+            command=self.chat.yview,
+        )
+        self.chat.configure(yscrollcommand=self.chat_scroll.set)
+        self.chat_scroll.pack(side="right", fill="y")
+        self.chat.pack(side="left", fill="both", expand=True)
         self.chat.tag_config("user", foreground=COR_USER)
         self.chat.tag_config("assistant", foreground=COR_ASSIST)
         self.chat.tag_config("error", foreground=COR_ERRO)
@@ -208,6 +261,27 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self._handle_close)
         self.entry.focus_set()
         self._poll()
+
+    # --- tema ---------------------------------------------------------------
+    def _estilo_ttk(self, root):
+        """
+        Scrollbar escuro.
+
+        O tema nativo do Windows ("vista") desenha o scrollbar com bitmaps do SO e
+        ignora troughcolor/background — daí a barra branca. O "clam" é desenhado
+        pelo Tk e aceita cores. Só temos um widget ttk (este scrollbar), portanto
+        trocar o tema global não mexe em mais nada.
+        """
+        estilo = ttk.Style(root)
+        with contextlib.suppress(tk.TclError):
+            estilo.theme_use("clam")
+        estilo.configure(
+            "JC.Vertical.TScrollbar",
+            troughcolor=BG_ALT, background=BORDA, arrowcolor=FG_DIM,
+            bordercolor=BG_ALT, darkcolor=BORDA, lightcolor=BORDA,
+            relief="flat",
+        )
+        estilo.map("JC.Vertical.TScrollbar", background=[("active", FG_DIM)])
 
     # --- ações ------------------------------------------------------------
     def _enviar(self, event=None):
@@ -323,21 +397,24 @@ class App:
             texto = label
         if texto != self._cache_estado:
             self._cache_estado = texto
-            self.state_label.config(
-                text=texto,
-                bg=STATE_COLORS.get(self._estado, UNKNOWN_COLOR),
-            )
+            cor = STATE_COLORS.get(self._estado, UNKNOWN_COLOR)
+            self.state_label.config(text=texto, bg=cor, fg=cor_texto(cor))
 
     def _draw_level(self, rms):
-        self.vu.delete("bar")
+        self._vu_rms = rms   # guardado para o <Configure> poder redesenhar
+        self.vu.delete("all")
         largura = self.vu.winfo_width()
         if largura <= 1:
             return
+        # Trilho primeiro, sempre: com nível a zero o canvas ficava vazio e a app
+        # parecia partida. Agora vê-se a calha, e a barra por cima quando há sinal.
+        self.vu.create_rectangle(0, 0, largura, VU_ALTURA, fill=VU_TRACK, width=0, tags="track")
         nivel = nivel_vu(rms)
-        cor = VU_CLIP if nivel > 0.95 else VU_OK
-        self.vu.create_rectangle(
-            0, 0, int(largura * nivel), VU_ALTURA, fill=cor, width=0, tags="bar"
-        )
+        if nivel > 0:
+            cor = VU_CLIP if nivel > 0.95 else VU_OK
+            self.vu.create_rectangle(
+                0, 0, int(largura * nivel), VU_ALTURA, fill=cor, width=0, tags="bar"
+            )
 
     # --- loop -------------------------------------------------------------
     def _poll(self):

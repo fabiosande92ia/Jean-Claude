@@ -45,3 +45,21 @@ def test_vu_sobe_com_o_sinal():
     assert silencio == 0.0
     assert 0.15 < fala < 1.0        # fala normal: barra visível, não colada ao zero
     assert ui_app.nivel_vu(1.0) == 1.0   # clip satura, não estoura o canvas
+
+
+# --- contraste do header ---------------------------------------------------
+def test_contraste_conhecido():
+    assert ui_app.contraste("#ffffff", "#000000") == pytest.approx(21.0, abs=0.01)
+    assert ui_app.contraste("#ffffff", "#ffffff") == pytest.approx(1.0, abs=0.01)
+
+
+@pytest.mark.parametrize("estado", sorted(EXPECTED))
+def test_header_passa_wcag_aa(estado):
+    """Texto branco sobre o amarelo do 'a processar' dava 2.6:1. Agora >= 4.5:1."""
+    fundo = ui_app.STATE_COLORS[estado]
+    assert ui_app.contraste(ui_app.cor_texto(fundo), fundo) >= 4.5
+
+
+def test_header_de_estado_desconhecido_tambem_passa():
+    fundo = ui_app.UNKNOWN_COLOR
+    assert ui_app.contraste(ui_app.cor_texto(fundo), fundo) >= 4.5
