@@ -274,3 +274,56 @@ def test_delta_sem_stream_ativo_nao_rebenta(chat):
     chat._apagar_delta()
     chat._append_msg("assistant", "resposta inteira de uma vez")
     assert "resposta inteira de uma vez" in texto_da(chat)
+
+
+# --- mascote ------------------------------------------------------------------
+class MascotFalsa:
+    def __init__(self):
+        self.estados = []
+        self.baloes = []
+        self.destruida = False
+
+    def set_state(self, e):
+        self.estados.append(e)
+
+    def balao(self, t):
+        self.baloes.append(t)
+
+    def destroy(self):
+        self.destruida = True
+
+
+def _app_para_poll(mascot):
+    """App mínima para exercer o _poll: fila, mascote, e stubs dos handlers que
+    os branches tocam. _a_fechar=True impede o reagendamento do after."""
+    import queue
+    app = object.__new__(ui_app.App)
+    app.ui_queue = queue.Queue()
+    app._a_fechar = True
+    app.mascot = mascot
+    app._set_estado = lambda p: None
+    app._refresh_estado = lambda: None
+    app._apagar_delta = lambda: None
+    app._append_msg = lambda k, p: None
+    return app
+
+
+def test_poll_encaminha_estado_para_a_mascote():
+    app = _app_para_poll(MascotFalsa())
+    app.ui_queue.put(("state", "recording"))
+    app._poll()
+    assert app.mascot.estados == ["recording"]
+
+
+def test_poll_encaminha_resposta_para_o_balao():
+    app = _app_para_poll(MascotFalsa())
+    app.ui_queue.put(("assistant", "está feito Fábio"))
+    app._poll()
+    assert app.mascot.baloes == ["está feito Fábio"]
+
+
+def test_mascote_none_nao_rebenta_o_poll():
+    app = _app_para_poll(None)
+    app.ui_queue.put(("state", "idle"))
+    app.ui_queue.put(("assistant", "olá"))
+    app._poll()   # não levanta

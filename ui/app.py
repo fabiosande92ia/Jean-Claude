@@ -9,6 +9,7 @@ from datetime import datetime
 from tkinter import ttk
 
 from core import config
+from ui.mascot import Mascot
 from ui.tray import Tray
 
 # --- tema (um só, coerente) ------------------------------------------------
@@ -394,6 +395,13 @@ class App:
         root.bind("<Escape>", self._parar)
         root.protocol("WM_DELETE_WINDOW", self._handle_close)
         self.entry.focus_set()
+
+        try:
+            self.mascot = Mascot(root, on_click=self._mostrar)
+        except Exception:
+            # Sem -transparentcolor (Tk/plataforma): app segue sem mascote.
+            self.mascot = None
+
         self._poll()
 
     # --- janela -------------------------------------------------------------
@@ -529,6 +537,8 @@ class App:
             return   # X + "Sair" do tray quase em simultâneo: fechar duas vezes rebentava
         self._a_fechar = True
         self._guardar_geometria()   # antes do destroy: depois já não há geometry para ler
+        if getattr(self, "mascot", None):
+            self.mascot.destroy()
         self.tray.stop()
         self.on_close()
         self.root.destroy()
@@ -696,6 +706,8 @@ class App:
                 kind, payload = self.ui_queue.get_nowait()
                 if kind == "state":
                     self._set_estado(payload)
+                    if self.mascot:
+                        self.mascot.set_state(payload)
                 elif kind == "level":
                     self._draw_level(payload)
                 elif kind == "tray":
@@ -709,6 +721,8 @@ class App:
                 else:
                     if kind == "assistant":
                         self._apagar_delta()   # a final substitui o que fluiu
+                        if self.mascot:
+                            self.mascot.balao(payload)
                     else:
                         self._fechar_delta()   # erro/info a meio: guarda o que já veio
                     # .get()/else e não índice direto: um kind desconhecido rebentava o
