@@ -34,6 +34,41 @@ ALLOWED_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "
 
 WHISPER_MODEL = "large-v3"
 
+# --- TTS ---------------------------------------------------------------------
+# Motor: edge_vc (default) | edge | xtts.
+#   edge_vc: Duarte europeu (Edge-TTS) + FreeVC -> timbre do JeanClaude. PT-PT
+#            garantido + voz do Jean Claude. Online (Edge) + GPU (FreeVC).
+#   edge   : só o Duarte europeu, sem clonagem.
+#   xtts   : XTTS-v2 local clona o JeanClaude, mas o "pt" puxa para pt-BR.
+TTS_ENGINE = "edge_vc"
+
+# Voz Edge (base do edge/edge_vc). Duarte = português europeu.
+EDGE_VOICE = "pt-PT-DuarteNeural"
+EDGE_RATE = "+0%"
+# Duarte base ~121 Hz; JeanClaude ~103 Hz. FreeVC preserva o tom da fonte, logo
+# baixar o Duarte para o tom dele aproxima o resultado da voz clonada (-20Hz ≈ 104).
+EDGE_PITCH = "-20Hz"
+EDGE_VOLUME = "+0%"
+
+# --- TTS: efeito robô -------------------------------------------------------
+# FX "voz de robô" aplicado a QUALQUER motor (edge/edge_vc/xtts), depois da
+# síntese e antes de tocar, em voice.tts.TTS.speak(). Ring modulation (multiplica
+# a voz por um seno) + bitcrush (quantiza -> som digital). Desligado por default.
+# Preset atual: B "metálico" + voz fina (+6 semitons). Escolhido a ouvir demos.
+TTS_ROBOT = True
+TTS_ROBOT_CARRIER_HZ = 140.0  # seno da ring mod: 40-60 grave/Dalek, 150+ metálico
+TTS_ROBOT_CRUSH_BITS = 7      # bits do bitcrush: menor = mais digital/áspero
+TTS_ROBOT_MIX = 0.85          # 0..1 dry/wet: 1 = só robô, 0 = voz limpa
+TTS_ROBOT_PITCH_SEMITONES = 6.0  # sobe o tom (voz mais fina); 0 = tom original
+
+# Amostra de voz alvo (timbre a clonar no edge_vc/xtts). WAV e não MP3: FreeVC/XTTS
+# carregam-na via torchaudio, que no Windows sem ffmpeg não descodifica MP3.
+# JeanClaude.wav é derivado do MP3 (mono) e gitignored; o MP3 é a fonte versionada
+# e voice.tts gera o WAV na 1ª carga se ele faltar.
+XTTS_SPEAKER_WAV = PROJECT_ROOT / "models" / "JeanClaude.wav"
+XTTS_SPEAKER_MP3 = PROJECT_ROOT / "JeanClaude.mp3"
+XTTS_LANGUAGE = "pt"
+
 # Tecla de push-to-talk. Fonte ÚNICA de verdade: voice.hotkey.resolve() traduz este
 # nome para a tecla real *e* para o rótulo que a UI mostra no botão. Antes isto dizia
 # "space" enquanto o main.py usava numpad e a UI escrevia "Numpad -" à mão — três
