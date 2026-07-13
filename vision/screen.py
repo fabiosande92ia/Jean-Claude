@@ -6,7 +6,7 @@ from PIL import Image
 
 def capture_png() -> bytes:
     """Captura o ecrã principal e devolve PNG em bytes."""
-    with mss.mss() as sct:
+    with mss.MSS() as sct:
         monitor = sct.monitors[1]  # monitor principal
         shot = sct.grab(monitor)
         img = Image.frombytes("RGB", shot.size, shot.rgb)
