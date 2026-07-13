@@ -2,6 +2,8 @@
 import asyncio
 import contextlib
 import queue
+import subprocess
+import sys
 import tempfile
 import threading
 import uuid
@@ -9,7 +11,7 @@ from collections import deque
 from pathlib import Path
 from core import config
 from brain.agent import JeanClaude
-from brain import memory, history
+from brain import memory, history, tools as brain_tools
 from voice import stt, tts, hotkey
 from ui import app as ui_app
 
@@ -279,6 +281,18 @@ def main():
     controls = Controls()
     state = StateBus(ui_queue)
 
+    # Liga a tool `abrir_consola` ao encerramento limpo e ao reinício: quando a
+    # consola do Fábio acabar, ela pede "sair" pela mesma via do tray e marca
+    # este evento — o main() relança o processo só depois do mainloop terminar.
+    reiniciar_event = threading.Event()
+    brain_tools.configurar_reinicio(ui_queue, reiniciar_event.set)
+
+    # Resumo da última consola (ou o log, em fallback), se ficou pendente de um
+    # reinício anterior — consumido aqui, não repete no próximo arranque.
+    resumo_consola = brain_tools.ler_resumo_consola_pendente()
+    if resumo_consola:
+        ui_queue.put(("info", f"[consola] {resumo_consola}"))
+
     tecla, tecla_label = hotkey.resolve()   # config.HOTKEY manda; o botão mostra isto
     recorder = hotkey.Recorder(level_cb=lambda rms: ui_queue.put(("level", rms)))
 
@@ -357,6 +371,15 @@ def main():
         on_text=submit_text, on_cancel=cancelar, hotkey_label=tecla_label,
         historico=history.load(config.HISTORY_REPLAY),
     )
+
+    # Só depois do mainloop acabar (encerramento limpo já feito): relança a app.
+    # Não é os._exit — o processo atual termina sozinho ao cair fora do main().
+    if reiniciar_event.is_set():
+        subprocess.Popen(
+            [sys.executable, str(config.PROJECT_ROOT / "main.py")],
+            cwd=str(config.PROJECT_ROOT),
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
 
 
 if __name__ == "__main__":

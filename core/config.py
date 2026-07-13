@@ -49,8 +49,14 @@ UI_STATE_FILE = CONFIG_DIR / "ui.json"
 
 # Pedido de alteração ao código do próprio JC, entregue à consola Claude Code por
 # ficheiro. Por ficheiro e não por argumento: texto arbitrário dentro de um
-# `cmd /k claude "..."` é injeção de comandos.
+# `cmd /c claude "..."` é injeção de comandos.
 PEDIDO_CONSOLA = CONFIG_DIR / "pedido-consola.md"
+
+# Resumo final que a consola escreve antes de fechar, e log bruto (stdout/stderr)
+# como fallback se o resumo não existir. Consumidos (apagados) no arranque
+# seguinte da app — não podem repetir-se.
+CONSOLA_ULTIMA = CONFIG_DIR / "consola-ultima.md"
+CONSOLA_LOG = CONFIG_DIR / "consola-log.txt"
 HISTORY_SIZE = 5      # trocas recentes injetadas no prompt do agente
 HISTORY_REPLAY = 20   # mensagens recarregadas para o chat ao arrancar
 
