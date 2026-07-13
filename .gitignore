@@ -7,9 +7,14 @@ venv/
 models/
 *.onnx
 *.onnx.json
+.jc-config/.credentials.json
 .jc-config/credentials.json
 .jc-config/.claude.json
+.jc-config/.last-cleanup
 .jc-config/backups/
+.jc-config/cache/
+.jc-config/history.jsonl
+.jc-config/plugins/
 .jc-config/projects/
 .jc-config/sessions/
 .pytest_cache/

@@ -1,6 +1,16 @@
 {
-  "_comment": "Reference only. Gating is via core/config.ALLOWED_TOOLS; this file is not loaded at runtime (setting_sources=[]).",
   "permissions": {
-    "allow": ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
-  }
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch"
+    ]
+  },
+  "theme": "dark-daltonized",
+  "_comment": "Reference only. Gating is via core/config.ALLOWED_TOOLS; this file is not loaded at runtime (setting_sources=[])."
 }
